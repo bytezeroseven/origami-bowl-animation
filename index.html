@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title></title>
+	<style type="text/css">
+		
+		body {
+			padding: 0;
+			margin: 0;
+			overflow: hidden;
+			font-family: arial;
+			user-select: none;
+		}
+
+		.playback-control {
+
+			position: absolute;
+			right: 10px;
+			top: 10px;
+			display: flex;
+
+		}
+
+		.btn-svg {
+			width: 70px;
+			height: 100px;
+		}
+
+		.btn-svg polygon {
+			stroke-width: 1;
+			stroke: black;
+			fill: white;
+			cursor: pointer;
+		}
+
+		.btn-svg polygon:hover {
+			fill: #ffcc35;
+		}
+
+		.credits {
+
+			position: absolute;
+			right: 10px;
+			bottom: 10px;
+			color: #a08d3c;
+			font-weight: bolder;
+
+		}
+
+		.debug-screen {
+
+			position: absolute;
+			left: 20px;
+			top: 20px;
+			display: none;
+			text-align: center;
+
+		}
+
+		#currentLineTexture {
+
+			width: 200px;
+			height: auto;
+
+		}
+
+		.loader-overlay {
+
+			position: absolute;
+			left: 0;
+			top: 0;
+			width: 100%;
+			height: 100%;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			color: #fff;
+			font-size: 2em;
+			font-weight: bolder;
+			background: #000;
+
+		}
+
+		.ui-wrapper {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+		}
+
+	</style>
+</head>
+<body>
+
+	<canvas id='animationCanvas'>Your browser doesn't support HTML5 canvas.</canvas>
+
+	<div class='ui-wrapper'>
+		
+		<div class='playback-control'>
+			
+			<div class='control-btn'>
+				<svg class='btn-svg' style='transform: scaleX(-1)'>
+					<polygon points="10,0 70,50 10,100" onclick='prev()' />
+				</svg>
+			</div>
+			<div class='control-btn'>
+				<svg class='btn-svg'>
+					<polygon points="10,0 70,50 10,100" onclick='next()' />
+				</svg>
+			</div>
+
+		</div>
+
+		<div class='debug-screen'>
+			
+			<img src="#" id="currentLineTexture">
+			<div id='currentStepHolder'>Currentstep: <span id='currentStepCounter'>0/10</span></div>
+
+		</div>
+
+		<div class='loader-overlay'>Loading...</div>
+
+	</div>
+
+
+	<div class='credits' style='display:none;'>Copyright © Abhinav Singh Chauhan</div>
+
+	<script type="text/javascript" src="https://unpkg.com/three@0.114.0/build/three.min.js"></script>
+	<script type="text/javascript" src="https://unpkg.com/three@0.114.0/examples/js/loaders/GLTFLoader.js"></script>
+
+	<script type="text/javascript" src="keyframe_data.js"></script>
+
+	<script type="text/javascript">
+
+
+		var model_url = './model/origami_bowl_animation_z_fighting_adjusted.glb';
+		//model_url = './model/origami_bowl_animation_z_fighting_adjusted_keyframegap_2.glb';
+
+		// Customizations
+
+		var lineWidth = 2;
+		var lineColor = '#000';
+
+		var dashSize = lineWidth * 5;
+		var dashGap = lineWidth * 5;
+
+
+		// paper color
+		var frontColor = '#fff';
+		var backColor = '#2222ff';
+
+		
+		var textureSize = 512; // Changing this might make you change the lineWidth too
+
+		
+		var keyframeGap = 5; // For compressed 2 and for normal 5
+		//keyframeGap = 2;
+
+		var speed = keyframeGap / 5; // Normal model has a gap of 5 so to maintain uniform speed divide by 5
+
+
+		var debug = {};
+
+		Object.defineProperty(debug, 'enable', {
+
+			set: function(value) {
+
+				if (value === true) {
+
+					document.querySelector('.debug-screen').style.display = 'block';
+					this.isEnabled = true;
+
+				} else {
+
+					document.querySelector('.debug-screen').style.display = 'none';
+					this.isEnabled = false;
+
+				}
+
+				this.isEnabled = value;
+
+			}
+
+		});
+
+		
+		Object.defineProperty(debug, 'showCurrentstep', {
+
+			set: function(value) {
+
+				document.querySelector('#currentStepHolder').style.display = value ? 'block' : 'none';
+			}
+
+		});
+
+		Object.defineProperty(debug, 'showLineTexture', {
+
+			set: function(value) {
+
+				document.querySelector('#currentLineTexture').style.display = value ? 'block' : 'none';
+			}
+
+		});
+
+
+		debug.enable = true; // Enable debug using debug.enable only
+		
+		debug.showLineTexture = true;
+		debug.showCurrentstep = !true;
+
+		debug.useCurrentstep = !!false;
+		debug.currentstep = 15;
+
+
+
+
+		var times = null;
+
+		var currentstep = debug.isEnabled && debug.useCurrentstep ? debug.currentstep : 0;
+
+
+
+		var numSteps = keyframePositions.length / 2;
+
+
+		function set(n) {
+
+			setKeyframeRegion(
+
+				keyframePositions[n * 2], 
+				
+				keyframePositions[n * 2 + 1],
+				
+				keyframeGap
+
+			);
+
+		}
+
+		function setLines(n) {
+
+			n = Math.min(n, keyframeLines.length - 1);
+
+			if (n < 0) {
+
+				updateTextureLines([]);
+
+			} else {
+
+				updateTextureLines(keyframeLines[n]);
+
+			}
+			
+		}
+
+		function next() {
+
+			play();
+
+		}
+
+		function prev() {
+
+			if (currentstep === 0) {
+				return false;
+			}
+
+			set(--currentstep);
+			setLines(currentstep - 1);
+			pause();
+
+		}
+
+		function play() {
+
+			if (currentstep < numSteps) {
+
+				isPlaying = true;
+				setLines(currentstep);
+	
+			}
+			
+		}
+
+		function pause() {
+
+			isPlaying = false;
+
+		}
+
+		var isPlayingAll = false;
+
+
+		var startTime = 0;
+		var endTime = 0;
+		var isPlaying = false;
+
+		function setKeyframeRegion(start, length, scale) {
+
+			if (scale == null) {
+				scale = 1;
+			}
+
+			startTime = times[(start) * scale];
+
+			endTime = times[(start + length) * scale];
+
+			if (times[0] < 0) {
+				startTime -= times[0];
+				endTime -= times[0];
+			}
+
+
+			mixer.setTime(startTime);
+
+		}
+
+		function onKeyframeRegionFinish() {
+
+			console.log('Keyframe Region #' + currentstep + ' finished.');
+
+			if (currentstep < numSteps) {
+
+				currentstep++;
+
+				if (currentstep !== numSteps) set(currentstep);
+
+
+			}
+			
+		}
+
+		
+		var renderer = new THREE.WebGLRenderer({
+
+			canvas: document.getElementById('animationCanvas'),
+			antialias: true,
+			alpha: false,
+			
+
+		});
+
+		renderer.setSize(window.innerWidth, window.innerHeight);
+		
+		renderer.setPixelRatio(window.deivicePixelRatio);
+		
+
+		renderer.setClearColor(0xfef7da);
+		
+		// renderer.setClearColor(0x000000);
+
+		var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 10);
+
+		camera.position.set(0, 2, 0);
+		camera.lookAt(0, 0, 0);
+
+
+
+
+		function onResize() {
+
+			renderer.setSize(window.innerWidth, window.innerHeight);
+
+			camera.aspect = window.innerWidth / window.innerHeight;
+
+			camera.updateProjectionMatrix();
+
+			scaleUi();
+
+		}
+
+		window.addEventListener('resize', onResize, false);
+
+		function scaleUi() {
+
+			var scale = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+
+
+		}
+
+		scaleUi();
+
+
+		var textureCache = {};
+
+		var texture = new THREE.CanvasTexture();
+		
+		texture.flipY = false;
+
+
+		updateTextureLines([]);
+
+		function updateTextureLines(lines) {
+
+			var cachedTexture = textureCache[lines]
+
+			if (cachedTexture === undefined) {
+
+				cachedTexture = createLineTexture(lines);
+
+				textureCache[lines] = cachedTexture;
+
+			}
+
+			texture.image = cachedTexture;
+			texture.needsUpdate = true;
+
+			document.getElementById('currentLineTexture').src = cachedTexture.toDataURL();
+
+		}
+
+		function createLineTexture(lines) {
+
+			var canvas = document.createElement('canvas');
+
+			canvas.width = textureSize;
+			canvas.height = textureSize;
+
+			var context = canvas.getContext('2d');
+
+			context.save();
+
+			context.clearRect(0, 0, textureSize, textureSize);
+
+			context.translate(textureSize / 2, textureSize / 2);
+
+			context.beginPath();
+
+			for (var j = 0; j < outlinePoints.length; j ++) {
+
+				context.lineTo(outlinePoints[j].x * textureSize / 2, outlinePoints[j].y * textureSize / 2);	
+
+			}
+
+			context.closePath();
+
+
+			context.lineWidth = lineWidth;
+
+			context.fillStyle = '#fff';
+			context.fill();
+
+			context.strokeStyle = '#000';
+			context.stroke();
+
+			for (var i = 0; i < lines.length; i++) {
+
+				var lineData = lines[i];
+
+				context.beginPath();
+
+				context.moveTo(lineData[0].x * textureSize / 2, lineData[0].y * textureSize / 2);
+				context.lineTo(lineData[1].x * textureSize / 2, lineData[1].y * textureSize / 2);
+
+
+				if (lineData[2] === true) {
+
+					context.setLineDash([dashSize, dashGap]);
+
+				} else {
+
+					context.setLineDash([]);
+
+				}
+
+				context.stroke();
+
+				context.closePath();
+
+
+			}
+
+			context.restore();
+
+			return canvas;
+
+		}
+
+
+
+
+		var scene = new THREE.Scene();
+
+		var ambientLight = new THREE.AmbientLight();
+
+		scene.add(ambientLight);
+
+
+		var pointLight = new THREE.PointLight();
+		pointLight.position.y = 10;
+
+		scene.add(pointLight);
+
+		var gltfLoader = new THREE.GLTFLoader();
+
+		var mixer = new THREE.AnimationMixer();
+
+		var animationGroup = new THREE.AnimationObjectGroup();
+
+
+		var clock = new THREE.Clock();
+
+		var frontMaterial = new THREE.MeshLambertMaterial({
+
+			color: new THREE.Color(frontColor),
+			side: THREE.FrontSide,
+			map: texture,
+			//polygonOffset: true,
+			//polygonOffsetFactor: 4
+
+		});
+
+		frontMaterial.morphTargets = true;
+		
+		frontMaterial.morphNormals = true;
+
+		
+		var backMaterial = new THREE.MeshLambertMaterial({
+
+			color: new THREE.Color(backColor),
+			side: THREE.BackSide,
+			map: texture,
+
+			//polygonOffset: true,
+			//polygonOffsetFactor: -4
+
+		});
+
+		backMaterial.morphTargets = true;
+		
+		backMaterial.morphNormals = true;
+
+
+		var loaderOverlay = document.querySelector('.loader-overlay');
+
+		gltfLoader.load(
+
+			model_url, 
+			
+			function onLoad(gltf) {
+
+				var bowl = gltf.scene.getObjectByName('Bowl');
+
+				bowl.scale.setScalar(1)
+
+				bowl.rotation.y += (22.5)* 0.017;
+
+				bowl.material = frontMaterial;
+
+				var bowlBack = bowl.clone();
+
+				bowlBack.material = backMaterial;
+
+
+				animationGroup = new THREE.AnimationObjectGroup();
+
+				animationGroup.add(bowl);
+
+				animationGroup.add(bowlBack);
+
+
+				scene.add(bowl);
+
+				scene.add(bowlBack);
+
+
+				mixer = new THREE.AnimationMixer(animationGroup);
+
+				var action = mixer.clipAction(gltf.animations[0]).play();
+
+				times = action._clip.tracks[0].times;
+
+
+				set(currentstep);
+				setLines(currentstep-1);
+
+				window.requestAnimationFrame(animate);
+
+				loaderOverlay.style.display = 'none';
+
+			},
+
+			function onProgress(xhr) {
+
+				loaderOverlay.innerHTML = Math.floor(xhr.loaded / xhr.total * 100) + '%';
+
+			},
+
+			function onError(err) {
+
+				console.error('Error loading model!', err);
+				loaderOverlay.innerHTML = 'Error! See console for info.';
+
+			}
+
+		);
+
+		var oldCurrentStep = null;
+
+		function animate(time) {
+
+			window.requestAnimationFrame(animate);
+
+
+			var delta = 1 / 60 * speed;
+
+			if (isPlayingAll) {
+
+				mixer.update(delta);
+
+			} else if (isPlaying === true) {
+
+				var x = Math.min(endTime, mixer.time + delta);				
+			
+				mixer.setTime(x);
+				
+				if (x === endTime) {
+
+					onKeyframeRegionFinish();
+					isPlaying = false;
+
+				}
+
+
+			}
+
+			if (numSteps !== currentstep) {
+
+				camera.position.y = 2;
+				//backMaterial.polygonOffsetFactor = -4;
+
+			} else {
+
+				camera.position.y = 1.4;
+				//backMaterial.polygonOffsetFactor = -0.1;
+			}
+
+
+			if (oldCurrentStep !== currentstep) {
+
+				document.getElementById('currentStepCounter').innerHTML = (currentstep) + '/' + numSteps;
+				oldCurrentStep = currentstep;
+
+			}
+
+
+			renderer.render(scene, camera);
+
+		}
+
+		
+
+
+
+	</script>
+</body>
+</html>
